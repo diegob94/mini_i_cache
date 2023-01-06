@@ -3,8 +3,14 @@
 `timescale 1 ns / 100 ps
 
 interface mini_i_cache_bfm;
+    // DUT parameters begin
     parameter int data_width = 32;
     parameter int addr_width = 32;
+    // DUT parameters end
+
+    // DUT ports begin
+    logic clk;
+    logic rst;
     logic ir_data_valid;
     logic ir_addr_ready;
     logic [data_width-1:0] ir_data;
@@ -17,19 +23,50 @@ interface mini_i_cache_bfm;
     logic bus_ir_data_ready;
     logic bus_ir_addr_valid;
     logic [addr_width-1:0] bus_ir_addr;
-    logic clk = 0;
+    // DUT ports end
+
+    string tag = "mini_i_cache_bfm: ";
+    integer svut_error = 0;
     initial begin
-    clk = 0;
+        ir_data_ready = 1;
+        clk = 0;
+        rst = 0;
         forever begin
             #5;
             clk = ~clk;
         end
     end
-    task read(input addr, output data);
+    task info(string msg);
+        `INFO($sformatf(tag,msg));
+    endtask : info
+    task error(string msg);
+        `ERROR($sformatf(tag,msg));
+    endtask : error
+    task reset();
+        info("reset");
+        @(negedge clk);
+        rst = 1;
+        @(negedge clk);
+        rst = 0;
+    endtask : reset
+    task read(input int addr, output int data);
+        assert(!$isunknown(ir_addr_ready)) else error("read ir_addr_ready is unknown");
+        while(!ir_addr_ready)
+            @(negedge clk);
+        info($sformatf("read addr 0x%0X",addr));
+        ir_addr = addr;
+        ir_addr_valid = 1;
+        @(negedge clk);
+        ir_addr_valid = 0;
+        while(!ir_data_valid)
+            @(negedge clk);
+        assert(!$isunknown(ir_data_valid)) else error("read ir_data_valid has X or Z bits");
+        data = ir_data_valid;
+        info($sformatf(tag,"read addr=0x%0X data=0x%0X",addr,data));
     endtask : read
-    task bus_recv(output addr);
+    task bus_recv(output int addr);
     endtask : bus_recv
-    task bus_reply(input data);
+    task bus_reply(input int data);
     endtask : bus_reply
 endinterface
 
@@ -37,19 +74,16 @@ module mini_i_cache_testbench();
 
     `SVUT_SETUP
 
-    parameter int data_width = 32;
-    parameter int addr_width = 32;
     int addr, raddr, data, rdata;
 
-    mini_i_cache_bfm #(
-        .data_width(data_width),
-        .addr_width(addr_width)
-    ) bfm ();
+    mini_i_cache_bfm bfm ();
 
     mini_i_cache #(
-        .data_width (data_width),
-        .addr_width (addr_width)
+        .data_width (32),
+        .addr_width (32)
     ) dut (
+        .clock             (bfm.clk),
+        .reset             (bfm.rst),
         .ir_data_valid     (bfm.ir_data_valid),
         .ir_addr_ready     (bfm.ir_addr_ready),
         .ir_data           (bfm.ir_data),
@@ -65,10 +99,10 @@ module mini_i_cache_testbench();
     );
 
     // To dump data for visualization:
-    // initial begin
-    //     $dumpfile("mini_i_cache_testbench.vcd");
-    //     $dumpvars(0, mini_i_cache_testbench);
-    // end
+    initial begin
+        $dumpfile("mini_i_cache_testbench.vcd");
+        $dumpvars(0, mini_i_cache_testbench);
+    end
 
     // Setup time format when printing with $realtime()
     initial $timeformat(-9, 1, "ns", 8);
@@ -76,12 +110,15 @@ module mini_i_cache_testbench();
     task setup(msg="");
     begin
         // setup() runs when a test begins
+        bfm.reset();
+        bfm.svut_error = 0;
     end
     endtask
 
     task teardown(msg="");
     begin
         // teardown() runs when a test ends
+        svut_error += bfm.svut_error;
     end
     endtask
 

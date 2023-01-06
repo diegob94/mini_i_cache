@@ -1,0 +1,4 @@
+.venv/
+svut_h.sv
+svut.out
+*.vcd
