@@ -28,7 +28,6 @@ interface mini_i_cache_bfm;
     string tag = "mini_i_cache_bfm: ";
     integer svut_error = 0;
     initial begin
-        ir_data_ready = 1;
         clk = 0;
         rst = 0;
         forever begin
@@ -36,19 +35,24 @@ interface mini_i_cache_bfm;
             clk = ~clk;
         end
     end
+
     task info(string msg);
         `INFO($sformatf(tag,msg));
     endtask : info
+    
     task error(string msg);
         `ERROR($sformatf(tag,msg));
     endtask : error
+    
     task reset();
         info("reset");
         @(negedge clk);
         rst = 1;
         @(negedge clk);
         rst = 0;
+        ir_data_ready = 1;
     endtask : reset
+    
     task read(input int addr, output int data);
         assert(!$isunknown(ir_addr_ready)) else error("read ir_addr_ready is unknown");
         while(!ir_addr_ready)
@@ -60,21 +64,30 @@ interface mini_i_cache_bfm;
         ir_addr_valid = 0;
         while(!ir_data_valid)
             @(negedge clk);
-        assert(!$isunknown(ir_data_valid)) else error("read ir_data_valid has X or Z bits");
+        assert(!$isunknown(ir_data_valid)) else error($sformatf("read ir_data_valid=%0d has X or Z bits",ir_data_valid));
+        assert(!$isunknown(ir_data)) else error($sformatf("read ir_data=0x%0X has X or Z bits",ir_data));
         data = ir_data_valid;
-        info($sformatf(tag,"read addr=0x%0X data=0x%0X",addr,data));
+        info($sformatf("read addr=0x%0X data=0x%0X",addr,data));
     endtask : read
+    
     task bus_recv(output int addr);
     endtask : bus_recv
+    
     task bus_reply(input int data);
     endtask : bus_reply
+
+    task wait_bus_req();
+        @(posedge bus_ir_addr_valid);
+    endtask : wait_bus_req
+
 endinterface
 
 module mini_i_cache_testbench();
 
     `SVUT_SETUP
 
-    int addr, raddr, data, rdata;
+    parameter int cache_size = 16;
+    int ref_addr, addr, ref_data, data;
 
     mini_i_cache_bfm bfm ();
 
@@ -122,6 +135,32 @@ module mini_i_cache_testbench();
     end
     endtask
 
+    task read_miss(input int ref_addr, input int ref_data, 
+        output int addr, output int data);
+        fork
+            bfm.read(ref_addr,data);
+            bfm.bus_recv(addr);
+            bfm.bus_reply(ref_data);
+        join
+    endtask : read_miss
+
+    task read_cache(input int ref_addr, input int ref_data, output int data);
+        fork
+            bfm.read(ref_addr,data);
+            begin
+                bfm.wait_bus_req();
+                assert(0) else `ERROR("Unexpected bus transaction");
+            end
+        join_any
+        disable fork;
+    endtask : read_cache
+
+    task fill_cache(input int ref_data);
+        int a, d;
+        for(int i = 0; i < cache_size; i++)
+            read_miss(i,ref_data,a,d);
+    endtask : fill_cache
+
     `TEST_SUITE("TESTSUITE_NAME")
 
     //  Available macros:"
@@ -144,23 +183,45 @@ module mini_i_cache_testbench();
     //
     //    - `LAST_STATUS: tied to 1 is last macro did experience a failure, else tied to 0
 
-    `UNIT_TEST("READ_MISS")
+    `UNIT_TEST("READ_MISS_EMPTY")
 
-        // Describe here the testcase scenario
-        //
-        // Because SVUT uses long nested macros, it's possible
-        // some local variable declaration leads to compilation issue.
-        // You should declare your variables after the IOs declaration to avoid that.
-        
-        addr = 123;
-        data = 101;
-        fork
-            bfm.read(addr,rdata);
-            bfm.bus_recv(raddr);
-            bfm.bus_reply(data);
-        join
-        `FAIL_IF_NOT_EQUAL(data,rdata);
-        `FAIL_IF_NOT_EQUAL(addr,raddr);
+        ref_addr = 123;
+        ref_data = 101;
+        read_miss(ref_addr, ref_data, addr, data);
+        `FAIL_IF_NOT_EQUAL(ref_data, data);
+        `FAIL_IF_NOT_EQUAL(ref_addr, addr);
+
+    `UNIT_TEST_END
+
+    `UNIT_TEST("READ_CACHE_EMPTY")
+
+        ref_addr = 123;
+        ref_data = 101;
+        read_miss(ref_addr, ref_data, addr, data);
+        read_cache(ref_addr, ref_data, data);
+        `FAIL_IF_NOT_EQUAL(ref_data, data);
+
+    `UNIT_TEST_END
+
+    `UNIT_TEST("READ_MISS_FULL")
+
+        fill_cache(404);
+        ref_addr = 16;
+        ref_data = 101;
+        read_miss(ref_addr, ref_data, addr, data);
+        `FAIL_IF_NOT_EQUAL(ref_data, data);
+        `FAIL_IF_NOT_EQUAL(ref_addr, addr);
+
+    `UNIT_TEST_END
+
+    `UNIT_TEST("READ_CACHE_FULL")
+
+        fill_cache(404);
+        ref_addr = 16;
+        ref_data = 101;
+        read_miss(ref_addr, ref_data, addr, data);
+        read_cache(ref_addr, ref_data, data);
+        `FAIL_IF_NOT_EQUAL(ref_data, data);
 
     `UNIT_TEST_END
 

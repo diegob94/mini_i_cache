@@ -6,7 +6,7 @@ run: .venv
 
 .PHONY: clean
 clean:
-	rm -fv svut_h.sv svut.out
+	rm -fv svut_h.sv svut.out mini_i_cache_testbench.vcd
 
 .PHONY: lint
 lint:
