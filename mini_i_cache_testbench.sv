@@ -51,6 +51,7 @@ interface mini_i_cache_bfm;
         @(negedge clk);
         rst = 0;
         ir_data_ready = 1;
+        bus_ir_addr_ready = 1;
     endtask : reset
     
     task read(input int addr, output int data);
@@ -66,14 +67,28 @@ interface mini_i_cache_bfm;
             @(negedge clk);
         assert(!$isunknown(ir_data_valid)) else error($sformatf("read ir_data_valid=%0d has X or Z bits",ir_data_valid));
         assert(!$isunknown(ir_data)) else error($sformatf("read ir_data=0x%0X has X or Z bits",ir_data));
-        data = ir_data_valid;
+        data = ir_data;
         info($sformatf("read addr=0x%0X data=0x%0X",addr,data));
     endtask : read
     
     task bus_recv(output int addr);
+        while(!bus_ir_addr_valid)
+            @(negedge clk);
+        assert(!$isunknown(bus_ir_addr_valid)) else error($sformatf("read bus_ir_addr_valid=%0d has X or Z bits",bus_ir_addr_valid));
+        assert(!$isunknown(bus_ir_addr)) else error($sformatf("read bus_ir_addr=0x%0X has X or Z bits",bus_ir_addr));
+        addr = bus_ir_addr;
+        info($sformatf("bus_recv addr=0x%0X",addr));
     endtask : bus_recv
     
     task bus_reply(input int data);
+        assert(!$isunknown(bus_ir_data_ready)) else error("read bus_ir_data_ready is unknown");
+        while(!bus_ir_data_ready)
+            @(negedge clk);
+        info($sformatf("bus_reply data 0x%0X",data));
+        bus_ir_data = data;
+        bus_ir_data_valid = 1;
+        @(negedge clk);
+        bus_ir_data_valid = 0;
     endtask : bus_reply
 
     task wait_bus_req();
@@ -139,8 +154,10 @@ module mini_i_cache_testbench();
         output int addr, output int data);
         fork
             bfm.read(ref_addr,data);
-            bfm.bus_recv(addr);
-            bfm.bus_reply(ref_data);
+            begin
+                bfm.bus_recv(addr);
+                bfm.bus_reply(ref_data);
+            end
         join
     endtask : read_miss
 
