@@ -6,6 +6,7 @@ interface mini_i_cache_bfm;
     // DUT parameters begin
     parameter int data_width = 32;
     parameter int addr_width = 32;
+    parameter int entry_addr_width = 32;
     // DUT parameters end
 
     // DUT ports begin
@@ -23,6 +24,7 @@ interface mini_i_cache_bfm;
     logic bus_ir_data_ready;
     logic bus_ir_addr_valid;
     logic [addr_width-1:0] bus_ir_addr;
+    logic [entry_addr_width-1:0] reset_counter;
     // DUT ports end
 
     string tag = "mini_i_cache_bfm: ";
@@ -35,6 +37,10 @@ interface mini_i_cache_bfm;
             clk = ~clk;
         end
     end
+
+    always @(posedge clk)
+        if (reset_counter != 0)
+            assert (!ir_addr_ready) else error("ir_addr_ready asserted during reset");
 
     task info(string msg);
         `INFO($sformatf(tag,msg));
@@ -55,7 +61,7 @@ interface mini_i_cache_bfm;
     endtask : reset
     
     task read(input int addr, output int data);
-        assert(!$isunknown(ir_addr_ready)) else error("read ir_addr_ready is unknown");
+        assert (!$isunknown(ir_addr_ready)) else error("read ir_addr_ready is unknown");
         while(!ir_addr_ready)
             @(negedge clk);
         info($sformatf("read addr 0x%0X",addr));
@@ -125,6 +131,7 @@ module mini_i_cache_testbench();
         .bus_ir_addr_valid (bfm.bus_ir_addr_valid),
         .bus_ir_addr       (bfm.bus_ir_addr)
     );
+    assign bfm.reset_counter = dut.reset_counter;
 
     // To dump data for visualization:
     initial begin

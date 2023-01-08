@@ -24,18 +24,19 @@ module mini_i_cache #(
         output reg [addr_width-1:0] bus_ir_addr
     );
 
-    parameter cache_addr_width = $clog2(cache_size);
-    parameter tag_width = addr_width - cache_addr_width;
+    parameter entry_addr_width = $clog2(cache_size);
+    parameter tag_width = addr_width - entry_addr_width;
     parameter entry_width = tag_width + data_width;
     parameter IDLE = 0;
     parameter RECEIVED = 1;
     parameter REPLY = 2;
     parameter MISS = 3;
     parameter WAIT_BUS = 4;
+    parameter RESET = 5;
 
     reg [entry_width-1:0] mem [cache_size-1:0];
-    wire cache_addr = addr_buf[cache_addr_width-1:0];
-    wire tag = addr_buf[addr_width-1:cache_addr_width];
+    wire [entry_addr_width-1:0] entry_addr;
+    wire [tag_width-1:0] tag;
     reg [addr_width-1:0] addr_buf;
     reg [2:0] state;
     reg [2:0] next_state;
@@ -43,23 +44,34 @@ module mini_i_cache #(
     reg [entry_width-1:0] entry;
     reg data_received;
     wire addr_sent;
+    wire [addr_width-1:0] cached_addr;
+    wire reset_done;
+    reg [entry_addr_width-1:0] reset_counter;
 
     always @(posedge clock)
         if (reset)
-            state <= IDLE;
+            state <= RESET;
         else
             state <= next_state;
 
+    assign tag = entry[entry_width-1:data_width];
+    assign cached_addr = {tag,entry_addr};
     always @(*) begin
-        next_state = IDLE;
+        next_state = RESET;
         case (state)
+            RESET: begin
+                next_state = RESET;
+                if (reset_done)
+                    next_state = IDLE;
+                end
             IDLE: begin
+                next_state = IDLE;
                 if (request_received)
                     next_state = RECEIVED;
                 end
             RECEIVED: begin
                 next_state = MISS;
-                if ({tag,entry[addr_width:data_width]} == addr_buf)
+                if (cached_addr == addr_buf)
                     next_state = REPLY;
                 end
             REPLY: begin
@@ -82,15 +94,20 @@ module mini_i_cache #(
 
     always @(posedge clock)
         if (reset) begin
+            ir_addr_ready <= 0;
+            bus_ir_data_ready <= 0;
+        end
+        else if (state == IDLE) begin
             ir_addr_ready <= 1;
             bus_ir_data_ready <= 1;
         end
 
+    assign entry_addr = addr_buf[entry_addr_width-1:0];
     always @(posedge clock)
         if (ir_addr_ready && ir_addr_valid) begin
-            entry <= mem[cache_addr];
+            entry <= mem[entry_addr];
         end else if (bus_ir_data_ready && bus_ir_data_valid) begin
-            entry <= {addr_buf[addr_width-1:cache_addr_width],bus_ir_data};
+            entry <= {addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
         end
 
     always @(posedge clock)
@@ -125,8 +142,17 @@ module mini_i_cache #(
         if (reset || next_state == MISS)
             data_received <= 0;
         else if (bus_ir_data_ready && bus_ir_data_valid) begin
-            mem[addr_buf[cache_addr_width-1:0]] <= {addr_buf[addr_width-1:cache_addr_width],bus_ir_data};
+            mem[addr_buf[entry_addr_width-1:0]] <= {addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
             data_received <= 1;
+        end
+
+    assign reset_done = &reset_counter;
+    always @(posedge clock)
+        if (reset)
+            reset_counter <= 0;
+        else if (state == RESET) begin
+            mem[reset_counter] <= 0;
+            reset_counter <= reset_counter + 1;
         end
 
 endmodule
