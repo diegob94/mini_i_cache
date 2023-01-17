@@ -26,7 +26,7 @@ module mini_i_cache #(
 
     parameter entry_addr_width = $clog2(cache_size);
     parameter tag_width = addr_width - entry_addr_width;
-    parameter entry_width = tag_width + data_width;
+    parameter entry_width = 1 + tag_width + data_width;
     parameter IDLE = 0;
     parameter RECEIVED = 1;
     parameter REPLY = 2;
@@ -47,6 +47,8 @@ module mini_i_cache #(
     wire [addr_width-1:0] cached_addr;
     wire reset_done;
     reg [entry_addr_width-1:0] reset_counter;
+    wire dirty;
+    wire [entry_width-1:0] reset_value;
 
     always @(posedge clock)
         if (reset)
@@ -56,6 +58,7 @@ module mini_i_cache #(
 
     assign tag = entry[entry_width-1:data_width];
     assign cached_addr = {tag,entry_addr};
+    assign dirty = entry[entry_width-1];
     always @(*) begin
         next_state = RESET;
         case (state)
@@ -71,7 +74,7 @@ module mini_i_cache #(
                 end
             RECEIVED: begin
                 next_state = MISS;
-                if (cached_addr == addr_buf)
+                if (cached_addr == addr_buf && !dirty)
                     next_state = REPLY;
                 end
             REPLY: begin
@@ -104,10 +107,10 @@ module mini_i_cache #(
 
     assign entry_addr = addr_buf[entry_addr_width-1:0];
     always @(posedge clock)
-        if (ir_addr_ready && ir_addr_valid) begin
+        if (request_received) begin
             entry <= mem[entry_addr];
         end else if (bus_ir_data_ready && bus_ir_data_valid) begin
-            entry <= {addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
+            entry <= {1'b0,addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
         end
 
     always @(posedge clock)
@@ -142,16 +145,17 @@ module mini_i_cache #(
         if (reset || next_state == MISS)
             data_received <= 0;
         else if (bus_ir_data_ready && bus_ir_data_valid) begin
-            mem[addr_buf[entry_addr_width-1:0]] <= {addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
+            mem[addr_buf[entry_addr_width-1:0]] <= {1'b0,addr_buf[addr_width-1:entry_addr_width],bus_ir_data};
             data_received <= 1;
         end
 
     assign reset_done = &reset_counter;
+    assign reset_value = {1'b1,{tag_width{1'b0}},{data_width{1'b0}}};
     always @(posedge clock)
         if (reset)
             reset_counter <= 0;
         else if (state == RESET) begin
-            mem[reset_counter] <= 0;
+            mem[reset_counter] <= reset_value;
             reset_counter <= reset_counter + 1;
         end
 

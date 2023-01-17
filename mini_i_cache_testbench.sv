@@ -64,7 +64,7 @@ interface mini_i_cache_bfm;
         assert (!$isunknown(ir_addr_ready)) else error("read ir_addr_ready is unknown");
         while(!ir_addr_ready)
             @(negedge clk);
-        info($sformatf("read addr 0x%0X",addr));
+        info($sformatf("read addr=0x%0X",addr));
         ir_addr = addr;
         ir_addr_valid = 1;
         @(negedge clk);
@@ -74,12 +74,13 @@ interface mini_i_cache_bfm;
         assert(!$isunknown(ir_data_valid)) else error($sformatf("read ir_data_valid=%0d has X or Z bits",ir_data_valid));
         assert(!$isunknown(ir_data)) else error($sformatf("read ir_data=0x%0X has X or Z bits",ir_data));
         data = ir_data;
-        info($sformatf("read addr=0x%0X data=0x%0X",addr,data));
+        info($sformatf("read done addr=0x%0X data=0x%0X",addr,data));
     endtask : read
     
     task bus_recv(output int addr);
-        while(!bus_ir_addr_valid)
+        while(!bus_ir_addr_valid) begin
             @(negedge clk);
+        end
         assert(!$isunknown(bus_ir_addr_valid)) else error($sformatf("read bus_ir_addr_valid=%0d has X or Z bits",bus_ir_addr_valid));
         assert(!$isunknown(bus_ir_addr)) else error($sformatf("read bus_ir_addr=0x%0X has X or Z bits",bus_ir_addr));
         addr = bus_ir_addr;
@@ -88,8 +89,9 @@ interface mini_i_cache_bfm;
     
     task bus_reply(input int data);
         assert(!$isunknown(bus_ir_data_ready)) else error("read bus_ir_data_ready is unknown");
-        while(!bus_ir_data_ready)
+        while(!bus_ir_data_ready) begin
             @(negedge clk);
+        end
         info($sformatf("bus_reply data 0x%0X",data));
         bus_ir_data = data;
         bus_ir_data_valid = 1;
@@ -162,8 +164,10 @@ module mini_i_cache_testbench();
         fork
             bfm.read(ref_addr,data);
             begin
+                `INFO($sformatf("read_miss: waiting bus transaction ref_addr=0x%0X ref_data=0x%0X",ref_addr,ref_data));
                 bfm.bus_recv(addr);
                 bfm.bus_reply(ref_data);
+                `INFO($sformatf("read_miss: received bus transaction ref_addr=0x%0X ref_data=0x%0X addr=0x%0X",ref_addr,ref_data,addr));
             end
         join
     endtask : read_miss
